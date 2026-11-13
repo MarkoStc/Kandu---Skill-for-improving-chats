@@ -1,231 +1,251 @@
-\documentclass[10pt]{article}
-\usepackage[a4paper,margin=1.6cm,top=1.4cm,bottom=1.5cm]{geometry}
+\documentclass[10pt,twocolumn]{article}
+\usepackage[a4paper,margin=1.5cm,top=1.3cm,bottom=1.5cm,columnsep=0.6cm]{geometry}
 \usepackage[T1]{fontenc}
 \usepackage{lmodern}
 \usepackage{microtype}
-\usepackage{graphicx}
 \usepackage{xcolor}
 \usepackage{tikz}
-\usetikzlibrary{arrows.meta,positioning,calc,shapes.geometric}
+\usetikzlibrary{arrows.meta,positioning,calc}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.17}
 \usepackage{listings}
 \usepackage{enumitem}
 \usepackage{booktabs}
 \usepackage{tabularx}
 \usepackage{titlesec}
-\usepackage{pgfplots}
-\pgfplotsset{compat=1.17}
-\usepackage{wrapfig}
 \usepackage{caption}
+\usepackage[most]{tcolorbox}
 \usepackage[hidelinks]{hyperref}
 
 \setlist{nosep,leftmargin=*,topsep=1pt}
-\titlespacing*{\section}{0pt}{5pt}{2pt}
-\titlespacing*{\subsection}{0pt}{3pt}{1pt}
+\titlespacing*{\section}{0pt}{6pt}{2pt}
 \titleformat{\section}{\large\bfseries}{\thesection}{0.5em}{}
-\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{0.5em}{}
 \setlength{\parindent}{0pt}
 \setlength{\parskip}{3pt}
+\captionsetup{font=small,skip=3pt}
 
-\definecolor{script}{HTML}{E8E8E8}
+\definecolor{code}{HTML}{E6E6E6}
 \definecolor{ai}{HTML}{D6E6FA}
-\definecolor{human}{HTML}{FBE3C6}
-\definecolor{store}{HTML}{DDF2DD}
+\definecolor{you}{HTML}{FBE3C6}
+\definecolor{saved}{HTML}{DDF2DD}
 
 \lstset{basicstyle=\ttfamily\scriptsize,columns=fullflexible,frame=single,
-  rulecolor=\color{gray!50},xleftmargin=2pt,xrightmargin=2pt,aboveskip=3pt,belowskip=2pt,
-  keywordstyle=\bfseries,commentstyle=\color{gray},language=Python,showstringspaces=false}
+  rulecolor=\color{gray!50},xleftmargin=2pt,xrightmargin=2pt,aboveskip=3pt,belowskip=3pt,
+  commentstyle=\color{gray},language=Python,showstringspaces=false,keywordstyle=\bfseries}
+
+\newcommand{\chip}[2]{\colorbox{#1}{\strut\scriptsize #2}}
 
 \begin{document}
 
+\twocolumn[
 \begin{center}
-{\Large\bfseries \texttt{/improve}: a skill that learns from your own opencode sessions}\\[2pt]
+{\LARGE\bfseries \texttt{/improve}: learning from your own AI coding sessions\par}\vspace{3pt}
 Marko Stojanovic \quad$\cdot$\quad Kandu AI internship task \quad$\cdot$\quad November 2026
 \end{center}
-\vspace{-4pt}
+\vspace{2pt}
+\begin{quote}\small
+\textbf{Summary.} \texttt{/improve} is a command an engineer runs every week or two. It reads their past sessions with the AI coding tool, finds the mistakes that keep coming back, and suggests fixes, each with the real log lines as proof. Nothing changes until the engineer says yes. Most of the checking is plain code; the AI only looks at small pieces of the logs. Every accepted change is saved in git, so it can be reviewed and undone.
+\end{quote}
+\vspace{4pt}
+]
 
-\textbf{In one paragraph.} The engineer types \texttt{/improve}. The skill reads their sessions since the last run, finds the mistakes that keep coming back (from the agent \emph{and} from the human), and shows a short list of fixes, each with the real log lines as proof. Nothing changes until the engineer clicks accept. Most of the work is plain code, like a linter (think \texttt{ruff}, but for chats); the AI only reads small, flagged pieces of the logs. Every accepted change is a git commit, so the system can always be checked and undone.
+\section{The problem, in plain words}
+Our engineers write code together with an AI. The program that runs the AI is called a \textbf{harness} (we use opencode). Inside it there are \textbf{agents}, which are AI helpers with one job each (``write code'', ``plan'', ``review''), and \textbf{skills}, which are saved instructions the AI follows when a task comes up, like a recipe. A skill is started by typing its name, for example \texttt{/improve}. There is also \texttt{AGENTS.md}, a file of standing rules the AI reads at the start of every session.
 
-\section{Assumptions, and what I deliberately did not do}
-\textbf{Assumptions.}
-(1) A script gives me each session as JSON: user, assistant and tool messages, with timestamps, agent name (Build, Plan, subagents) and token counts. opencode already stores all of this and exports it as \texttt{\{info, messages:[\{info, parts\}]\}}.
-(2) One engineer, 20--60 sessions per run, a run every one or two weeks.
-(3) The whole setup is files in git: \texttt{AGENTS.md}, \texttt{.opencode/agents/}, skills, \texttt{opencode.json}. So ``improving the harness'' means proposing edits to these files.
-(4) Logs can contain keys and personal data, so they are redacted before any model sees them (opencode has \texttt{export --sanitize}).
-(5) No training and no RL, as the brief says. The model stays fixed; only its setup and the human's habits change.
-
-\textbf{Deliberately not done.} No auto-apply: a wrong rule would hit every future session. No ``one big agent that reads all logs'': it is expensive, hard to check, and models are bad at it (see \S2). No judging the engineer's code, only \emph{how they work with the tool}. No live monitoring during a session (v1 looks back, it does not interrupt). No team-wide analysis yet (that is future work, \S7).
-
-\section{Rule zero: keep it boring}
-I want the self-improving part to be small and easy to inspect, for four reasons from research and practice.
+Every conversation with the AI is a \textbf{session}, and every session is saved: what the engineer typed, what the AI answered, and every command it ran. Two problems show up in those logs:
 \begin{itemize}
-\item Anthropic's guide on agents: ``find the simplest solution possible, and only increase complexity when needed'', because extra layers ``obscure the underlying prompts and responses, making them harder to debug'' [1].
-\item When an agent can act without a human gate, things break for real. In July 2025 Replit's agent deleted a live production database \emph{during a code freeze}, against explicit instructions; Replit's fix was separating dev from prod and adding a plan-only mode [2]. A skill that rewrites its own harness unattended is the same risk.
-\item Models are weak at reading long agent traces: on TRAIL the best model found the right error and its location only 11\% of the time, and accuracy drops as the input gets longer [3,4]. Multi-agent setups often add little over one agent [5].
-\item Papers that let agents rewrite their own harness do get gains (one went from 69.7\% to 77\% on Terminal-Bench), but they often report the best round, which inflates the result [6]. Karpathy's advice fits: keep the AI ``on a leash'' and make the generate--verify loop fast for the human [7].
+\item \textbf{The setup never learns.} The AI makes the same mistake every day, because nobody turns it into a rule.
+\item \textbf{People don't know the good habits.} For example, very long sessions make the AI worse, and code is better reviewed by a fresh agent than by the one that wrote it.
 \end{itemize}
-So four design rules: \textbf{code decides whenever code can; the AI reads small windows and answers in a fixed format; a human approves every change; everything is a file in git.}
+\texttt{/improve} looks at both: mistakes by the AI, and habits of the person.
 
-\section{Blueprint: the loop}
+\section{Assumptions}
+\begin{enumerate}
+\item A script gives me each session as JSON: user, assistant and tool messages, with time, agent name and token count. opencode already saves all of this.
+\item One engineer, 20 to 60 sessions per run, run every one or two weeks.
+\item The whole AI setup is files in git (\texttt{AGENTS.md}, agents, skills, settings). Improving the setup means proposing edits to these files.
+\item Logs can contain passwords and personal data, so they are cleaned before any AI reads them (opencode can export with \texttt{--sanitize}).
+\item No training and no RL. The AI model stays the same; only its setup and the person's habits change.
+\end{enumerate}
+
+\textbf{Left out on purpose.} No automatic changes: a wrong rule would affect every future session. No single AI that reads all the logs: it is slow, costly and hard to check. No judging of the engineer's code, only of how they work with the tool. No interrupting during a session; this version looks back. No team-wide view yet (see Next steps).
+
+\section{Design rules, and why}
+\begin{enumerate}
+\item \textbf{Keep it simple.} Anthropic's own advice for AI agents is to ``find the simplest solution possible, and only increase complexity when needed'' [1].
+\item \textbf{A person approves every change.} Agents that act alone can do real damage: in 2025 an AI coding agent deleted a company's live database during a code freeze, against direct instructions [2]. A tool that edits its own setup without a person checking is the same risk.
+\item \textbf{Code first, AI second.} AI models are weak at reading long logs: on one test, the best model found the right error in the right place only 11\% of the time, and results get worse as the input gets longer [3,4]. So plain code does most of the reading, and the AI only sees short pieces.
+\item \textbf{Everything is saved and can be undone.} Each change is one git commit with its reason. Karpathy's advice fits here: keep the AI ``on a leash'' and make it fast for a person to check its work [5].
+\end{enumerate}
+
+\section{How it works}
 \begin{figure}[h]
 \centering
-\vspace{-6pt}
 \begin{tikzpicture}[
-  box/.style={draw,rounded corners=3pt,align=center,font=\scriptsize,minimum height=1.0cm,text width=2.45cm,inner sep=2pt},
-  arr/.style={-{Stealth[length=4pt]},thick,gray!70!black},
-  lab/.style={font=\scriptsize\itshape,text=gray!40!black}]
-% side branch (top): finding what is not on the list yet
-\node[box,fill=ai]     (sample) at (3.6,1.95) {\textbf{4b AI reads a sample}\\whole sessions that look bad but had no flag: ``what else wasted time?''};
-\node[box,fill=script] (grow)   at (7.2,1.95) {\textbf{9 Grow / shrink}\\new mistake IDs + drafted detectors, retire dead rules};
-% main row
-\node[box,fill=script] (load)  at (0,0)    {\textbf{1 Load}\\sessions since last run, join subagent runs};
-\node[box,fill=script] (clean) at (3.6,0)  {\textbf{2 Clean + redact}\\typed records, no keys, no emails};
-\node[box,fill=script] (lint)  at (7.2,0)  {\textbf{3 Lint}\\detectors tick exact mistakes, flag unsure spots};
-\node[box,fill=ai]     (check) at (10.8,0) {\textbf{4 AI checks each flag}\\5-line window $\to$ confirm, relabel, other, false alarm};
-\node[box,fill=script] (count) at (14.4,0) {\textbf{5 Count + score}\\sessions hit, time, tokens; rule scores $\pm1$};
-% bottom row (right to left)
-\node[box,fill=ai]     (report) at (14.4,-1.85) {\textbf{6 Write proposals}\\from counts only; each with raw log lines};
-\node[box,fill=human]  (decide) at (10.8,-1.85) {\textbf{7 Engineer decides}\\accept / reject / edit, item by item};
-\node[box,fill=store]  (apply)  at (7.2,-1.85)  {\textbf{8 Apply + record}\\one git commit per change; \texttt{history.json}};
-\draw[arr] (load)--(clean); \draw[arr] (clean)--(lint); \draw[arr] (lint)--(check); \draw[arr] (check)--(count);
-\draw[arr] (count)--(report); \draw[arr] (report)--(decide); \draw[arr] (decide)--(apply);
-\draw[arr] (clean)--(sample);
-\draw[arr] (sample)--(grow);
-\draw[arr] (check.north) |- node[lab,pos=0.3,right]{``other'' answers} (grow.east);
-\draw[arr,dashed] (grow) -- node[lab,right]{new detectors} (lint);
-\draw[arr,dashed] (apply.west) -| node[lab,pos=0.25,below]{next run starts from \texttt{history.json}} (load.south);
+  stp/.style={draw=gray!60,rounded corners=4pt,align=center,font=\footnotesize,minimum width=2.15cm,minimum height=0.8cm,inner sep=2pt},
+  arr/.style={-{Stealth[length=5pt]},very thick,gray!70}]
+\node[stp,fill=code]  (read)   at (90:2.15)  {\textbf{1. Read}\\new sessions};
+\node[stp,fill=code]  (spot)   at (18:2.55)  {\textbf{2. Spot}\\likely mistakes};
+\node[stp,fill=ai]    (check)  at (-54:2.3) {\textbf{3. Check}\\AI confirms};
+\node[stp,fill=code]  (suggest) at (-126:2.3) {\textbf{4. Suggest}\\fixes + proof};
+\node[stp,fill=you]   (decide) at (162:2.55) {\textbf{5. You decide}\\yes / no / edit};
+\node[font=\footnotesize,align=center,fill=saved,rounded corners=3pt,inner sep=3pt] at (0,0) {saved in git\\+ history file};
+\draw[arr] (read) to[bend left=12] (spot);
+\draw[arr] (spot) to[bend left=12] (check);
+\draw[arr] (check) to[bend left=12] (suggest);
+\draw[arr] (suggest) to[bend left=12] (decide);
+\draw[arr] (decide) to[bend left=12] (read);
 \end{tikzpicture}
-\vspace{-4pt}
-\caption{\small One run of \texttt{/improve}. Grey = plain code, blue = AI call, orange = human, green = stored in git. The AI never edits files and never sees raw, unredacted logs.}
-\vspace{-8pt}
+\caption{One run. \chip{code}{grey: plain code} \chip{ai}{blue: AI} \chip{you}{orange: you}. The next run starts from what was saved.}
 \end{figure}
 
-\textbf{What gets detected (starter list).} Built from the brief, MAST's failure types [5], Claude Code's \texttt{/insights} friction report [8], and reading about 20 real sessions by hand. Each mistake is sorted by \emph{where the fix lives} before any fix is proposed (``localize before you fix'' [6]); otherwise every problem becomes one more line in \texttt{AGENTS.md}.
+\textbf{1. Read.} Load the sessions since the last run, remove secrets.
 
-\vspace{-2pt}
-{\small
-\begin{tabularx}{\textwidth}{@{}l >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}p{2.6cm} >{\raggedright\arraybackslash}p{4.6cm}@{}}
+\textbf{2. Spot.} Simple checks run over every session, like a spell-checker for chats. Some mistakes are clear from the log alone (``the same command failed 3 times in a row''), so code decides those. Others are only likely (``the user wrote \emph{I told you}''), so code just marks the spot. The checks are tuned to miss as little as possible, because step 3 removes false alarms.
+
+\textbf{3. Check.} For each marked spot, an AI gets the few lines around it and one question, for example ``did the user repeat a correction?''. It must answer in a fixed form: yes, no, or ``a different problem'' with a short note. The AI comes from a different company than the coding AI, since AI judges tend to go easier on their own family [6].
+
+\begin{center}
+\begin{tikzpicture}[f/.style={draw=gray!60,rounded corners=3pt,align=center,font=\footnotesize,minimum height=0.62cm}]
+\node[f,fill=code,minimum width=7.6cm] (a) at (0,0) {\textbf{about 4,000 messages} in 40 sessions: code reads all};
+\node[f,fill=ai,minimum width=5.4cm] (b) at (0,-0.78) {\textbf{about 60 marked spots}: AI reads only these};
+\node[f,fill=you,minimum width=3.2cm] (c) at (0,-1.56) {\textbf{about 6 suggestions}};
+\end{tikzpicture}\\[-2pt]
+{\scriptsize\itshape Typical sizes for one engineer. The AI reads a small slice, so it is cheaper and more accurate.}
+\end{center}
+
+\textbf{4. Suggest.} Count how often each mistake happened and in how many sessions. Only repeated mistakes become suggestions. Each one is placed where it belongs: a rule, a new agent, a new skill, a tool fix, or a habit tip [7].
+
+\textbf{5. You decide.} Accept, reject or edit each item. Accepted ones are written to the files and committed. All choices, including rejections, are saved so the tool doesn't ask again.
+
+\textbf{What it looks for at the start.} From the task brief, research on how AI agents fail [8], and Claude Code's similar \texttt{/insights} command [9]:
+
+\vspace{2pt}
+{\footnotesize
+\begin{tabularx}{\columnwidth}{@{}>{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}p{3.0cm}@{}}
 \toprule
-ID & Mistake & Caught by & Usual fix lives in\\
+\textbf{What keeps happening} & \textbf{Suggested fix}\\
 \midrule
-M1 & Context too full: tokens past a limit, auto-compactions, many topics in one session & exact (counter) & habit: one session per task \\
-M2 & Review asked in the same session that wrote the code & flag + AI & new read-only reviewer agent; habit \\
-M3 & User repeats a correction given before (``we use pnpm'') & flag + AI & one line in \texttt{AGENTS.md} \\
-M4 & Agent says ``done'' with no test run after its last edit & flag + AI & \texttt{AGENTS.md} rule or a tool hook \\
-M5 & Same failing tool call 3+ times in a row & exact & tool / script fix, or rule \\
-M6 & Real editing done in Plan agent (approve-click on every edit) & exact & habit: Tab to Build \\
-M7 & Same command sequence repeated across sessions, no problems & exact (sequence match) & a new skill (e.g.\ \texttt{/deploy-staging}) [9] \\
-M8+ & Anything else (``other'' answers, random-sample notes) & AI on sample & grows the list (\S5) \\
+Session runs too long, on many topics & tip: one session per task \\
+Review done by the same agent that wrote the code & a separate reviewer agent \\
+User repeats the same correction & one line in \texttt{AGENTS.md} \\
+AI says ``done'' without running tests & rule: test before ``done'' \\
+Same failing command, again and again & fix the tool or add a rule \\
+Same steps done by hand in many sessions & a new skill for them [10] \\
+Something new & added to this list \\
 \bottomrule
 \end{tabularx}}
 
-\textbf{Detectors are cheap and stacked for recall.} Missing a real mistake is worse than a false flag, because step 4 removes false flags. In order of trust: structure checks on tool-call JSON (retries, edit-after-test, agent name); counters (tokens, compactions); text checks: \texttt{regex}, fuzzy match (\texttt{rapidfuzz}, catches typos and ``said it twice''), and sentence embeddings (catch ``como te dije, usa pnpm''). Rules live in YAML so adding one needs no code.
+\section{Using it}
+\textbf{Step 1.} In opencode, type \texttt{/improve}. It takes a few minutes.
 
-\section{One example, end to end}
-Lea's session, 09:02--15:40, cut down. The linter marks five spots: two exact ones (no AI needed) and three flags; the AI gets only the few lines around each flag.
-\begin{lstlisting}
-09:03 agent  bash "npm test" -> error   (x3)            <- M5 exact: same failing call 3 times
-09:07 Lea    "we use pnpm, I told you last week. only run tests/unit"   <- M3 flag (regex "I told you")
-09:08 agent  bash "pnpm test tests/unit" -> 2 failed
-09:08 agent  edit src/refunds/calc.ts ; "Fixed the rounding. Done!"     <- M4 flag ("Done", no test after edit)
-11:30 / 13:15  Lea: README, then "why is the CI slow"                     <- M1 exact: 3 topics, 6.5 h
-15:32 Lea    "review everything you did today" -> agent: "Looks good"   <- M2 flag
-\end{lstlisting}
-The AI confirms M3, M4 and M2 in a fixed format (\texttt{\{id, msg, quote, verdict\}}). Across all 40 sessions the counts decide what is shown. What Lea sees:
-\begin{lstlisting}
-[RULE -> AGENTS.md]  "Run `pnpm test tests/unit` after your last edit, before saying done."
-  M4 in 6 of 40 sessions (2 of 2 readers agree). Example, ses_7f3a:
-    09:08 agent  pnpm test tests/unit -> 2 failed
-    09:08 agent  edited src/refunds/calc.ts
-    09:08 agent  "Fixed the rounding. Done!"
-  [accept] [reject] [edit]
-[HABIT]  Review in a fresh agent: in 9 sessions the agent reviewed its own work and found nothing.
-\end{lstlisting}
+\textbf{Step 2.} Read the short report. Each item looks like this:
 
-\section{The run, as pseudocode}
-\begin{lstlisting}
-def improve(user, cfg):                       # cfg = one YAML file: thresholds, models, rules
-    hist     = History.load(".improve/history.json")
-    sessions = [redact(clean(s)) for s in load_sessions(user, since=hist.last_run)]
-    flags    = [f for s in sessions for d in Detectors(cfg.rules) for f in d.run(s)]
-    labels   = [f for f in flags if f.exact]                       # M1, M5, M6, M7: no AI
-    labels  += [reader.check(window(f, n=5), f.guess) for f in flags if not f.exact]
-    notes    = [reader.open_question(s) for s in pick_sample(sessions, k=5, prefer="bad_but_unflagged")]
-    stats    = count(labels, sessions)                             # sessions hit + time + tokens, per mistake
-    hist.update_scores(stats)                                      # +1 / -1 per rule, averaged over runs
-    props    = localize_and_propose(stats, hist, budget=cfg.agents_md_max_lines)
-    props   += propose_new_types(hist.add_notes(notes))            # grows the list, drafts detectors
-    for p in engineer.review(props):                               # accept / reject / edit
-        if p.accepted: git_commit(p.diff, msg=p.reason)
-        hist.record(p)                                             # rejections too: no nagging
-    hist.save()
-\end{lstlisting}
-\vspace{-2pt}
-\texttt{reader} is a model from a \emph{different family} than the coding agent (judges go easier on their own family [10]), called through one interface (\texttt{litellm}) with a forced output schema (\texttt{instructor}).
+\begin{tcolorbox}[colback=white,colframe=gray!50,boxrule=0.5pt,arc=3pt,left=4pt,right=4pt,top=3pt,bottom=3pt,fontupper=\small]
+\chip{saved}{New rule for \texttt{AGENTS.md}}\par\vspace{2pt}
+\textbf{``Run the unit tests after your last edit, before saying done.''}\par\vspace{2pt}
+Seen in \textbf{6 of 40} sessions. Example from Monday, 09:08:\par
+{\ttfamily\scriptsize
+\hspace*{6pt}agent: ran tests $\to$ 2 failed\\
+\hspace*{6pt}agent: edited calc.ts\\
+\hspace*{6pt}agent: ``Fixed the rounding. Done!''}\par\vspace{3pt}
+\hfill\chip{saved}{accept}\ \chip{code}{reject}\ \chip{you}{edit}
+\end{tcolorbox}
 
-\section{How it improves itself, without drifting}
+\textbf{Step 3.} Click accept, reject or edit. That's it.
+
+\textbf{Why the report looks like this.} Research shows that long AI explanations make people accept advice whether it is right or not [11]. Proof only helps when checking it is quicker than trusting it [12]. So each item shows a count and the real log lines, which take seconds to check. The report talks about sessions, not about the person, since feedback aimed at the person often makes performance worse [13]. And it stays short: at Google, engineers ignored checking tools that raised too many false alarms (above about 10\%) [14].
+
+\section{How it gets better over time}
 \begin{itemize}
-\item \textbf{Rules carry a track record.} Each accepted rule stores which mistake it targets. Every run, plain code does $+1$ if that mistake dropped, $-1$ if not, averaged over several runs (one good week is luck [6]). Below zero for a while $\to$ propose removal. Same idea as ExpeL's add / upvote / downvote / edit list of insights [11], and ACE's small ``delta'' updates instead of rewriting the whole context, which avoids ``context collapse'' [12]. \texttt{AGENTS.md} has a size budget; long, task-specific rules move to a separate file it points to.
-\item \textbf{New mistake types.} ``Other'' answers and sample notes pile up across runs. When the same kind of note shows up often enough, it is proposed as a new ID. The skill then drafts a detector, tests it on the already confirmed cases and on the labeled sessions, and shows the numbers before Lea accepts it.
-\item \textbf{Detectors get pruned too.} If Lea rejects one detector's flags often, it is too noisy: Google turned off analyzers that got ignored more than about 10\% of the time [13]. Above that, the detector is muted until fixed.
-\item \textbf{Nothing is deleted from counting.} A fixed mistake stays counted (cheaply), so we notice if it comes back, e.g.\ after a model switch.
+\item \textbf{Rules must earn their place.} Each rule remembers which mistake it should fix. If that mistake goes down over the next runs, the rule gets $+1$; if not, $-1$. A rule that keeps losing points is suggested for removal. This follows ExpeL, which keeps a list of lessons and votes them up or down [15], and ACE, which updates the AI's instructions in small steps instead of rewriting them [16]. \texttt{AGENTS.md} has a size limit; long rules for one kind of task move to a separate file it points to.
+\item \textbf{New mistakes get added.} The ``a different problem'' notes from step 3, plus a few full sessions the AI reads each run, are collected. When the same kind of note keeps coming back, it is suggested as a new item for the list, together with a new check for step 2 that was tested on past sessions.
+\item \textbf{Noisy checks are switched off.} If you keep rejecting what one check finds, it is muted until fixed.
+\item \textbf{Nothing is forgotten.} A fixed mistake is still counted, so we see if it comes back, for example after switching AI models.
 \end{itemize}
 
-\textbf{Showing proof the right way.} Explanations can make people accept AI advice \emph{whether or not it is right} [14]; they help only when checking is cheaper than trusting [15]. So the report shows raw log lines plus a count, not an AI paragraph. It talks about sessions, not the person: feedback aimed at the self often makes performance worse [16]. Only changes that touch every session (\texttt{AGENTS.md}) ask one extra question before accept.
-
-\section{How I would test it}
-
-\noindent\begin{minipage}[t]{0.55\textwidth}\vspace{0pt}
-Hand-label about 20 sessions with \emph{where} each mistake happens; build on 10, keep 10 untouched for the final numbers. Two separate checks: detectors must miss almost nothing (recall $\geq$ 90\%), and the AI must sort flags like I do (Cohen's $\kappa \geq 0.7$ per mistake; MAST reached 0.77 [5]). A fix ``works'' if its mistake's rate drops after the accept date \emph{and} drops more than mistakes we did not touch (otherwise the work just got easier that month). Re-run the labeled set whenever the reader model or a definition changes.
-\end{minipage}\hfill
-\begin{minipage}[t]{0.42\textwidth}\vspace{0pt}\centering
-
-\centering
-\begin{tikzpicture}
-\begin{axis}[width=\linewidth,height=3.4cm,ybar=1pt,bar width=6pt,
-  ymin=0,ymax=40,ylabel={\% of sessions},ylabel style={font=\scriptsize},
-  xtick={1,...,6},xlabel={run (every 2 weeks)},xlabel style={font=\scriptsize},
-  tick label style={font=\scriptsize},legend style={font=\scriptsize,draw=none,at={(0.98,0.98)},anchor=north east},
-  legend cell align=left,enlarge x limits=0.12]
-\addplot[fill=ai,draw=blue!50!black] coordinates {(1,30)(2,28)(3,12)(4,8)(5,9)(6,7)};
-\addplot[fill=script,draw=gray!60!black] coordinates {(1,22)(2,24)(3,21)(4,23)(5,20)(6,22)};
-\draw[dashed,thick,orange!80!black] (axis cs:2.5,0) -- (axis cs:2.5,40);
-\legend{M4 (rule added),M1 (untouched)}
-\end{axis}
-\end{tikzpicture}
-\vspace{-6pt}
-{\scriptsize\itshape \scriptsize Illustrative numbers. Rule for M4 accepted after run 2 (dashed). M4 drops, the untouched M1 does not, so the drop is likely the rule, not an easier month.}
-
+\noindent\begin{minipage}{\columnwidth}
+\textbf{One run, in short:}
+\begin{lstlisting}
+sessions = clean(load_new_sessions())
+spots    = run_checks(sessions)          # plain code
+answers  = ai_confirm(spots)             # short pieces only
+counts   = count_per_mistake(answers)
+for item in suggest(counts, history):
+    if engineer_accepts(item):
+        apply_and_commit(item)
+    history.save(item)                   # yes and no
+\end{lstlisting}
 \end{minipage}
 
-\section{Limits, and next steps}
-\textbf{Limits.} It only sees what happens inside opencode (commands typed in a normal terminal are invisible). One engineer gives small numbers, so many outputs will honestly be ``not enough data yet''. Before/after is not proof of cause. The AI reader can be wrong or biased (the size of the same-family bias is still debated). Text detectors miss wordings they were never shown; recall is only measured on the labeled set. And a report nobody reads fixes nothing, so the list stays short.
+\section{How I would test it}
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}
+\begin{axis}[width=\columnwidth,height=3.6cm,ybar=1pt,bar width=6pt,
+  ymin=0,ymax=40,ylabel={\% of sessions},ylabel style={font=\scriptsize},
+  xtick={1,...,6},xlabel={run (every 2 weeks)},xlabel style={font=\scriptsize},
+  tick label style={font=\scriptsize},legend style={font=\scriptsize,draw=none,at={(0.5,1.03)},anchor=south,legend columns=-1,/tikz/every even column/.append style={column sep=6pt}},
+  legend cell align=left,enlarge x limits=0.1]
+\addplot[fill=ai,draw=blue!50!black] coordinates {(1,30)(2,28)(3,12)(4,8)(5,9)(6,7)};
+\addplot[fill=code,draw=gray!60!black] coordinates {(1,22)(2,24)(3,21)(4,23)(5,20)(6,22)};
+\draw[dashed,thick,orange!80!black] (axis cs:2.5,0) -- (axis cs:2.5,40);
+\legend{``done'' without tests (rule added),long sessions (no change)}
+\end{axis}
+\end{tikzpicture}
+\caption{Example with made-up numbers. The rule was accepted after run 2. Only its mistake drops, so the drop is likely due to the rule and not to an easier month.}
+\end{figure}
+\begin{enumerate}
+\item Read about 20 real sessions and mark every mistake by hand. Use 10 to build the checks and keep 10 aside for the final test.
+\item The simple checks must find almost every marked mistake (over 90\%).
+\item The AI must agree with my marks most of the time (a standard agreement score above 0.7; a similar study reached 0.77 [8]).
+\item After a fix is accepted, its mistake should drop more than mistakes that were not touched (see the chart).
+\item Repeat steps 2 and 3 whenever the AI model or the list changes.
+\end{enumerate}
 
-\textbf{Next.} (1) Team version: one anonymous line per session, embeddings + HDBSCAN to group them, and a group is shown only if many engineers share it, like Anthropic's Clio [17]; redact first, since such privacy layers have been attacked. (2) Live nudges as an opencode plugin (``context at 150k tokens, start a new session?''). (3) Turn repeated successful routines into skills that build on each other, as in Agent Workflow Memory [9].
+\section{Limits}
+\begin{itemize}
+\item It only sees what happens inside opencode.
+\item One person's sessions give small numbers, so some answers will be ``not enough data yet''.
+\item A drop after a fix is a good sign, not proof.
+\item The AI can be wrong, and the simple checks miss wordings they were never shown.
+\item A report nobody reads changes nothing, so it must stay short.
+\end{itemize}
+
+\section{Next steps}
+\begin{itemize}
+\item \textbf{Team version.} One anonymous line per session, grouped by topic, and a group is shown only if many engineers share it, as in Anthropic's Clio [17]. Secrets must be removed first, since such privacy layers can be attacked.
+\item \textbf{Live tips} inside opencode, e.g.\ ``this session is getting long, start a new one?''.
+\item \textbf{Skills that build on skills}, from steps that repeat across sessions [10].
+\end{itemize}
 
 \vspace{2pt}
 \hrule
-\vspace{2pt}
-{\footnotesize
-\textbf{References.} A note on sources: for a field this new, talks and videos by people building these tools are often the first place a practice appears, months before a paper (Claude Code's \texttt{/insights} [8] is documented mostly in posts and talks). Developers already work this way: 60.5\% of the 2025 Stack Overflow survey use YouTube for community, 70\% of those learning to code [18], and developers have long used YouTube screencasts to share know-how [19]. One YouTube course I also used as a sanity check: ``learn by building small experiments'' and ``monitor regularly, with independent assessment'' [20].\\[2pt]
+\vspace{3pt}
+{\scriptsize
+\textbf{A note on sources.} AI engineering changes every few months, so many good practices first appear in talks and videos by the people who build these tools, long before a paper (Claude Code's \texttt{/insights} [9] is mostly explained in posts and talks). Developers already learn this way: in the 2025 Stack Overflow survey, 60.5\% use YouTube for community, 70\% of those learning to code [18], and developers have long used YouTube to share know-how [19]. I also used a general AI engineering course on YouTube as a check; two of its points shaped this design: learn by building small things, and keep checking your system with an independent review [20].
+
+\vspace{3pt}
+\textbf{References.}
 [1] Schluntz \& Zhang, \emph{Building effective agents}, Anthropic, 2024.
-[2] Fortune, \emph{AI coding tool Replit wiped database}, Jul 2025.
+[2] Fortune, \emph{AI coding tool Replit wiped database, called it a catastrophic failure}, Jul 2025.
 [3] Deshpande et al., \emph{TRAIL}, arXiv:2505.08638, 2025.
 [4] Hong et al., \emph{Context Rot}, Chroma, 2025.
-[5] Cemri et al., \emph{Why do multi-agent LLM systems fail? (MAST)}, NeurIPS 2025.
-[6] \emph{Self-evolving agentic harnesses} (overview of HarnessFix, Self-Harness, etc.), 2026; \emph{Gated semantic quality-diversity}, arXiv:2607.13683.
-[7] Karpathy, \emph{Software Is Changing (Again)}, YC AI Startup School, YouTube \href{https://youtube.com/watch?v=LCEmiRjPEtQ}{LCEmiRjPEtQ}, 2025.
-[8] Claude Code \texttt{/insights} command, Anthropic, Feb 2026 (wmedia.es guide).
-[9] Wang et al., \emph{Agent Workflow Memory}, ICML 2025.
-[10] Pombal et al., \emph{Self-preference bias in rubric-based evaluation}, arXiv:2604.06996, 2026.
-[11] Zhao et al., \emph{ExpeL}, AAAI 2024.
-[12] Zhang et al., \emph{Agentic Context Engineering (ACE)}, ICLR 2026.
-[13] Sadowski et al., \emph{Lessons from building static analysis tools at Google}, CACM 2018.
-[14] Bansal et al., \emph{Does the whole exceed its parts?}, CHI 2021.
-[15] Vasconcelos et al., \emph{Explanations can reduce overreliance on AI}, CSCW 2023.
-[16] Kluger \& DeNisi, \emph{The effects of feedback interventions on performance}, Psych.\ Bulletin 1996.
-[17] Tamkin et al., \emph{Clio}, Anthropic 2024.
+[5] Karpathy, \emph{Software Is Changing (Again)}, YC AI Startup School 2025, \href{https://youtube.com/watch?v=LCEmiRjPEtQ}{YouTube}.
+[6] Pombal et al., \emph{Self-preference bias in rubric-based evaluation}, arXiv:2604.06996, 2026.
+[7] \emph{Self-evolving agentic harnesses} (HarnessFix: ``localize before you fix''), 2026.
+[8] Cemri et al., \emph{Why do multi-agent LLM systems fail?}, NeurIPS 2025.
+[9] Claude Code \texttt{/insights} command, Anthropic, Feb 2026.
+[10] Wang et al., \emph{Agent Workflow Memory}, ICML 2025.
+[11] Bansal et al., \emph{Does the whole exceed its parts?}, CHI 2021.
+[12] Vasconcelos et al., \emph{Explanations can reduce overreliance on AI}, CSCW 2023.
+[13] Kluger \& DeNisi, \emph{The effects of feedback interventions on performance}, 1996.
+[14] Sadowski et al., \emph{Lessons from building static analysis tools at Google}, CACM 2018.
+[15] Zhao et al., \emph{ExpeL}, AAAI 2024.
+[16] Zhang et al., \emph{Agentic Context Engineering}, ICLR 2026.
+[17] Tamkin et al., \emph{Clio}, Anthropic, 2024.
 [18] Stack Overflow Developer Survey 2025.
-[19] MacLeod et al., \emph{Code, camera, action: how developers document and share program knowledge using YouTube}, 2015.
+[19] MacLeod, \emph{Code, Camera, Action!: how developers share program knowledge using YouTube}, 2015.
 [20] Simplilearn, \emph{AI Engineer Full Course 2026}, YouTube.
 }
 
