@@ -5,7 +5,7 @@
 \usepackage{microtype}
 \usepackage{xcolor}
 \usepackage{tikz}
-\usetikzlibrary{arrows.meta,positioning,calc}
+\usetikzlibrary{arrows.meta,positioning,calc,fit,backgrounds,decorations.pathreplacing}
 \usepackage{pgfplots}
 \pgfplotsset{compat=1.17}
 \usepackage{listings}
@@ -28,6 +28,7 @@
 \definecolor{ai}{HTML}{D6E6FA}
 \definecolor{you}{HTML}{FBE3C6}
 \definecolor{saved}{HTML}{DDF2DD}
+\definecolor{flag}{HTML}{D9534F}
 
 \lstset{basicstyle=\ttfamily\scriptsize,columns=fullflexible,frame=single,
   rulecolor=\color{gray!50},xleftmargin=2pt,xrightmargin=2pt,aboveskip=3pt,belowskip=3pt,
@@ -44,51 +45,68 @@ Marko Stojanovic \quad$\cdot$\quad Kandu AI internship task \quad$\cdot$\quad No
 \end{center}
 \vspace{2pt}
 \begin{quote}\small
-\textbf{Summary.} \texttt{/improve} is a command an engineer runs every week or two. It reads their past sessions with the AI coding tool, finds the mistakes that keep coming back, and suggests fixes, each with the real log lines as proof. Nothing changes until the engineer says yes. Most of the checking is plain code; the AI only looks at small pieces of the logs. Every accepted change is saved in git, so it can be reviewed and undone.
+\textbf{Summary.} \texttt{/improve} is a command an engineer runs every week or two. It reads their past sessions with the AI coding tool, finds the mistakes that keep coming back, and suggests fixes, each with the real log lines as proof. Nothing changes until the engineer says yes. Most of the checking is done by plain code, and the AI only looks at small pieces of the logs. Every accepted change is saved in git, so it can always be reviewed and undone.
 \end{quote}
 \vspace{4pt}
 ]
 
-\section{The problem, in plain words}
-Our engineers write code together with an AI. The program that runs the AI is called a \textbf{harness} (we use opencode). Inside it there are \textbf{agents}, which are AI helpers with one job each (``write code'', ``plan'', ``review''), and \textbf{skills}, which are saved instructions the AI follows when a task comes up, like a recipe. A skill is started by typing its name, for example \texttt{/improve}. There is also \texttt{AGENTS.md}, a file of standing rules the AI reads at the start of every session.
+\section{The problem}
+Our engineers write code together with an AI. The program that runs the AI and connects it to the engineer's computer is called a \textbf{harness}; at Kandu this is opencode. Figure~\ref{fig:harness} shows what sits inside it. \textbf{Agents} are AI helpers that each have one job, such as writing code, planning, or reviewing. \textbf{Skills} are saved instructions that the AI follows when a matching task comes up, a bit like a recipe; an engineer can also start one by typing its name, for example \texttt{/improve}. Finally, \texttt{AGENTS.md} is a file of standing rules that the AI reads at the start of every conversation.
 
-Every conversation with the AI is a \textbf{session}, and every session is saved: what the engineer typed, what the AI answered, and every command it ran. Two problems show up in those logs:
-\begin{itemize}
-\item \textbf{The setup never learns.} The AI makes the same mistake every day, because nobody turns it into a rule.
-\item \textbf{People don't know the good habits.} For example, very long sessions make the AI worse, and code is better reviewed by a fresh agent than by the one that wrote it.
-\end{itemize}
-\texttt{/improve} looks at both: mistakes by the AI, and habits of the person.
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+  b/.style={draw=gray!60,rounded corners=3pt,align=center,font=\footnotesize,inner sep=3pt},
+  arr/.style={{Stealth[length=4pt]}-{Stealth[length=4pt]},thick,gray!70}]
+\node[b,fill=you,minimum width=1.5cm,minimum height=1.4cm] (eng) at (0,0) {Engineer};
+\node[b,fill=code,minimum width=1.25cm] (ag) at (2.55,0.45) {agents};
+\node[b,fill=code,minimum width=1.25cm] (sk) at (3.95,0.45) {skills};
+\node[b,fill=code,minimum width=1.25cm] (am) at (2.55,-0.35) {\texttt{AGENTS.md}};
+\node[b,fill=code,minimum width=1.25cm] (tl) at (3.95,-0.35) {tools};
+\begin{scope}[on background layer]
+\node[draw=gray!70,rounded corners=4pt,fill=white,fit=(ag)(sk)(am)(tl),inner sep=5pt,label={[font=\footnotesize\bfseries]above:harness (opencode)}] (h) {};
+\end{scope}
+\node[b,fill=ai,minimum width=1.4cm,minimum height=1.4cm] (llm) at (6.45,0) {AI model};
+\draw[arr] (eng) -- (h); \draw[arr] (h) -- (llm);
+\node[b,fill=saved,minimum width=3cm] (log) at (3.25,-1.65) {saved session logs};
+\draw[-{Stealth[length=4pt]},thick,gray!70] (h) -- (log);
+\node[font=\scriptsize\itshape,text=gray!40!black,right=0.15cm of log] {what \texttt{/improve} reads};
+\end{tikzpicture}
+\caption{The engineer talks to the harness, the harness talks to the AI model, and everything is saved as session logs.}
+\label{fig:harness}
+\end{figure}
 
-\section{Assumptions}
-\begin{enumerate}
-\item A script gives me each session as JSON: user, assistant and tool messages, with time, agent name and token count. opencode already saves all of this.
-\item One engineer, 20 to 60 sessions per run, run every one or two weeks.
-\item The whole AI setup is files in git (\texttt{AGENTS.md}, agents, skills, settings). Improving the setup means proposing edits to these files.
-\item Logs can contain passwords and personal data, so they are cleaned before any AI reads them (opencode can export with \texttt{--sanitize}).
-\item No training and no RL. The AI model stays the same; only its setup and the person's habits change.
-\end{enumerate}
+Every conversation with the AI is called a \textbf{session}, and every session is saved: what the engineer typed, what the AI answered, and every command it ran. Reading these logs shows two problems. First, the setup never learns: the AI makes the same mistake every day, because nobody turns that mistake into a rule. Second, people do not always know the good habits for working with the tool. For example, very long sessions make the AI noticeably worse, and code is better reviewed by a fresh agent than by the one that wrote it. \texttt{/improve} looks at both sides: mistakes made by the AI, and habits of the person using it.
 
-\textbf{Left out on purpose.} No automatic changes: a wrong rule would affect every future session. No single AI that reads all the logs: it is slow, costly and hard to check. No judging of the engineer's code, only of how they work with the tool. No interrupting during a session; this version looks back. No team-wide view yet (see Next steps).
+\section{Assumptions and scope}
+I make five assumptions. First, a script already gives me each session as JSON, with the user, assistant and tool messages, their time, the agent name and the token count; opencode saves all of this. Second, the tool serves one engineer at a time, with 20 to 60 sessions per run and a run every one or two weeks. Third, the whole AI setup (\texttt{AGENTS.md}, agents, skills, settings) is stored as files in git, so ``improving the setup'' means proposing edits to these files. Fourth, logs can contain passwords and personal data, so they are cleaned before any AI reads them; opencode can already export with \texttt{--sanitize}. Fifth, as the task says, there is no training and no RL: the AI model stays the same, and only its setup and the person's habits change.
 
-\section{Design rules, and why}
-\begin{enumerate}
-\item \textbf{Keep it simple.} Anthropic's own advice for AI agents is to ``find the simplest solution possible, and only increase complexity when needed'' [1].
-\item \textbf{A person approves every change.} Agents that act alone can do real damage: in 2025 an AI coding agent deleted a company's live database during a code freeze, against direct instructions [2]. A tool that edits its own setup without a person checking is the same risk.
-\item \textbf{Code first, AI second.} AI models are weak at reading long logs: on one test, the best model found the right error in the right place only 11\% of the time, and results get worse as the input gets longer [3,4]. So plain code does most of the reading, and the AI only sees short pieces.
-\item \textbf{Everything is saved and can be undone.} Each change is one git commit with its reason. Karpathy's advice fits here: keep the AI ``on a leash'' and make it fast for a person to check its work [5].
-\end{enumerate}
+Some things are left out on purpose. The tool never changes anything by itself, because a wrong rule would affect every future session. There is no single AI that reads all the logs, since that is slow, costly and hard to check. The tool does not judge the engineer's code, only how they work with the AI. It does not interrupt during a session; this first version only looks back. A team-wide view is also left for later (Section~8).
+
+\section{Design rules}
+Four rules shape the design, and each has a reason behind it.
+
+\textbf{Keep it simple.} Anthropic's guide on building agents advises to ``find the simplest solution possible, and only increase complexity when needed'' [1]. Extra layers make a system harder to debug and harder to trust.
+
+\textbf{A person approves every change.} Agents that act alone can cause real damage. In 2025 an AI coding agent deleted a company's live database during a code freeze, against direct instructions [2]. A tool that edits its own setup without anyone checking carries the same risk.
+
+\textbf{Code first, AI second.} AI models are weak at reading long logs. On one test, the best model found the right error in the right place only 11\% of the time, and results get worse as the input grows [3,4]. So plain code does most of the reading, and the AI only sees short pieces.
+
+\textbf{Everything is saved and can be undone.} Each change is one git commit with its reason. As Karpathy puts it, we should keep the AI ``on a leash'' and make it quick for a person to check its work [5].
 
 \section{How it works}
+One run has five steps (Figure~\ref{fig:loop}). The grey steps are plain code, the blue step uses an AI, and the orange step is the engineer.
+
 \begin{figure}[h]
 \centering
 \begin{tikzpicture}[
   stp/.style={draw=gray!60,rounded corners=4pt,align=center,font=\footnotesize,minimum width=2.15cm,minimum height=0.8cm,inner sep=2pt},
   arr/.style={-{Stealth[length=5pt]},very thick,gray!70}]
-\node[stp,fill=code]  (read)   at (90:2.15)  {\textbf{1. Read}\\new sessions};
-\node[stp,fill=code]  (spot)   at (18:2.55)  {\textbf{2. Spot}\\likely mistakes};
-\node[stp,fill=ai]    (check)  at (-54:2.3) {\textbf{3. Check}\\AI confirms};
+\node[stp,fill=code]  (read)    at (90:2.15)  {\textbf{1. Read}\\new sessions};
+\node[stp,fill=code]  (spot)    at (18:2.55)  {\textbf{2. Spot}\\likely mistakes};
+\node[stp,fill=ai]    (check)   at (-54:2.3)  {\textbf{3. Check}\\AI confirms};
 \node[stp,fill=code]  (suggest) at (-126:2.3) {\textbf{4. Suggest}\\fixes + proof};
-\node[stp,fill=you]   (decide) at (162:2.55) {\textbf{5. You decide}\\yes / no / edit};
+\node[stp,fill=you]   (decide)  at (162:2.55) {\textbf{5. You decide}\\yes / no / edit};
 \node[font=\footnotesize,align=center,fill=saved,rounded corners=3pt,inner sep=3pt] at (0,0) {saved in git\\+ history file};
 \draw[arr] (read) to[bend left=12] (spot);
 \draw[arr] (spot) to[bend left=12] (check);
@@ -96,29 +114,57 @@ Every conversation with the AI is a \textbf{session}, and every session is saved
 \draw[arr] (suggest) to[bend left=12] (decide);
 \draw[arr] (decide) to[bend left=12] (read);
 \end{tikzpicture}
-\caption{One run. \chip{code}{grey: plain code} \chip{ai}{blue: AI} \chip{you}{orange: you}. The next run starts from what was saved.}
+\caption{One run. \chip{code}{plain code} \chip{ai}{AI} \chip{you}{engineer}. The next run starts from what was saved.}
+\label{fig:loop}
 \end{figure}
 
-\textbf{1. Read.} Load the sessions since the last run, remove secrets.
+\textbf{1. Read.} The tool loads all sessions since the last run and removes secrets such as keys and email addresses.
 
-\textbf{2. Spot.} Simple checks run over every session, like a spell-checker for chats. Some mistakes are clear from the log alone (``the same command failed 3 times in a row''), so code decides those. Others are only likely (``the user wrote \emph{I told you}''), so code just marks the spot. The checks are tuned to miss as little as possible, because step 3 removes false alarms.
+\textbf{2. Spot.} Simple checks run over every session, much like a spell-checker runs over a text. Some mistakes are clear from the log alone, for example when the same command fails three times in a row; in that case the code decides by itself. Other mistakes are only likely, for example when the engineer writes ``I told you''. Here the code only marks the spot. The checks are set to miss as little as possible, because false alarms are removed in the next step.
 
-\textbf{3. Check.} For each marked spot, an AI gets the few lines around it and one question, for example ``did the user repeat a correction?''. It must answer in a fixed form: yes, no, or ``a different problem'' with a short note. The AI comes from a different company than the coding AI, since AI judges tend to go easier on their own family [6].
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+  ev/.style={font=\scriptsize,align=center},
+  tm/.style={font=\tiny,text=gray!70!black},
+  mk/.style={circle,fill=flag,inner sep=2pt},
+  ok/.style={circle,fill=gray!55,inner sep=2pt}]
+\draw[thick,gray!60] (-0.2,0) -- (7.5,0);
+\foreach \x/\t/\s/\l in {0/09:03/mk/{\textbf{A} same\\command\\fails 3$\times$},
+                         1.45/09:07/mk/{\textbf{B} ``I told\\you, use\\pnpm''},
+                         2.9/09:08/mk/{\textbf{C} ``Done!''\\(no test\\after edit)},
+                         4.35/11:30/ok/{new task:\\README},
+                         5.8/13:15/ok/{new task:\\CI speed},
+                         7.25/15:32/mk/{\textbf{D} ``review\\everything''}}{
+  \node[\s] at (\x,0) {};
+  \node[ev,anchor=south] at (\x,0.12) {\l};
+  \node[tm,anchor=north] at (\x,-0.1) {\t};
+}
+\draw[decorate,decoration={brace,mirror,amplitude=3pt},gray!70] (-0.1,-0.42) -- (7.35,-0.42)
+  node[midway,below=3pt,ev,text=gray!40!black] {one session, 09:02 to 15:40, three unrelated tasks: flagged as too long};
+\end{tikzpicture}
+\caption{Key moments of one session, in order. Red dots are spots the checks marked. A is certain, so code decides; B, C and D are only likely, so they go to the AI. The length of the session is caught by a simple counter.}
+\label{fig:timeline}
+\end{figure}
 
-\begin{center}
-\begin{tikzpicture}[f/.style={draw=gray!60,rounded corners=3pt,align=center,font=\footnotesize,minimum height=0.62cm}]
-\node[f,fill=code,minimum width=7.6cm] (a) at (0,0) {\textbf{about 4,000 messages} in 40 sessions: code reads all};
-\node[f,fill=ai,minimum width=5.4cm] (b) at (0,-0.78) {\textbf{about 60 marked spots}: AI reads only these};
-\node[f,fill=you,minimum width=3.2cm] (c) at (0,-1.56) {\textbf{about 6 suggestions}};
-\end{tikzpicture}\\[-2pt]
-{\scriptsize\itshape Typical sizes for one engineer. The AI reads a small slice, so it is cheaper and more accurate.}
-\end{center}
+\textbf{3. Check.} For each marked spot, an AI receives the few lines around it and one clear question, for example ``did the engineer repeat a correction they had already given?''. It must answer in a fixed form: yes, no, or ``a different problem'' with a short note. This AI comes from a different company than the coding AI, because AI judges tend to be more lenient with their own family [6]. Figure~\ref{fig:funnel} shows why this step is cheap: the AI reads only a small slice of everything.
 
-\textbf{4. Suggest.} Count how often each mistake happened and in how many sessions. Only repeated mistakes become suggestions. Each one is placed where it belongs: a rule, a new agent, a new skill, a tool fix, or a habit tip [7].
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[f/.style={draw=gray!60,rounded corners=3pt,align=center,font=\footnotesize,minimum height=0.6cm}]
+\node[f,fill=code,minimum width=7.8cm] at (0,0) {\textbf{about 4,000 messages} in 40 sessions: code reads all of them};
+\node[f,fill=ai,minimum width=5.6cm] at (0,-0.75) {\textbf{about 60 marked spots}: the AI reads only these};
+\node[f,fill=you,minimum width=3.3cm] at (0,-1.5) {\textbf{about 6 suggestions}};
+\end{tikzpicture}
+\caption{Typical sizes for one engineer over two weeks.}
+\label{fig:funnel}
+\end{figure}
 
-\textbf{5. You decide.} Accept, reject or edit each item. Accepted ones are written to the files and committed. All choices, including rejections, are saved so the tool doesn't ask again.
+\textbf{4. Suggest.} The tool counts how often each mistake happened and in how many sessions. Only mistakes that repeat become suggestions. Before writing a fix, it decides where the fix belongs: a rule in \texttt{AGENTS.md}, a new agent, a new skill, a fix to a tool, or a habit tip for the person [7]. Without this step, every problem would end up as one more line in \texttt{AGENTS.md}.
 
-\textbf{What it looks for at the start.} From the task brief, research on how AI agents fail [8], and Claude Code's similar \texttt{/insights} command [9]:
+\textbf{5. You decide.} The engineer accepts, rejects or edits each suggestion. Accepted ones are written to the right file and committed. All choices, including rejections, are stored in a history file, so the tool does not keep suggesting the same thing.
+
+The starting list of mistakes comes from the task description, research on how AI agents fail [8], and Claude Code's similar \texttt{/insights} command [9]:
 
 \vspace{2pt}
 {\footnotesize
@@ -128,7 +174,7 @@ Every conversation with the AI is a \textbf{session}, and every session is saved
 \midrule
 Session runs too long, on many topics & tip: one session per task \\
 Review done by the same agent that wrote the code & a separate reviewer agent \\
-User repeats the same correction & one line in \texttt{AGENTS.md} \\
+Engineer repeats the same correction & one line in \texttt{AGENTS.md} \\
 AI says ``done'' without running tests & rule: test before ``done'' \\
 Same failing command, again and again & fix the tool or add a rule \\
 Same steps done by hand in many sessions & a new skill for them [10] \\
@@ -136,10 +182,8 @@ Something new & added to this list \\
 \bottomrule
 \end{tabularx}}
 
-\section{Using it}
-\textbf{Step 1.} In opencode, type \texttt{/improve}. It takes a few minutes.
-
-\textbf{Step 2.} Read the short report. Each item looks like this:
+\section{What the engineer sees}
+The engineer types \texttt{/improve} in opencode, and after a few minutes gets a short report. Each item in it looks like this:
 
 \begin{tcolorbox}[colback=white,colframe=gray!50,boxrule=0.5pt,arc=3pt,left=4pt,right=4pt,top=3pt,bottom=3pt,fontupper=\small]
 \chip{saved}{New rule for \texttt{AGENTS.md}}\par\vspace{2pt}
@@ -152,20 +196,40 @@ Seen in \textbf{6 of 40} sessions. Example from Monday, 09:08:\par
 \hfill\chip{saved}{accept}\ \chip{code}{reject}\ \chip{you}{edit}
 \end{tcolorbox}
 
-\textbf{Step 3.} Click accept, reject or edit. That's it.
+The report is built this way on purpose. Research shows that long AI explanations make people accept advice whether it is right or not [11], and that proof only helps when checking it is quicker than trusting it [12]. So each item shows a count and the real log lines, which take a few seconds to check. The report talks about sessions and not about the person, because feedback aimed at the person often makes performance worse [13]. It also stays short: at Google, engineers stopped paying attention to checking tools that raised too many false alarms, roughly more than one in ten [14].
 
-\textbf{Why the report looks like this.} Research shows that long AI explanations make people accept advice whether it is right or not [11]. Proof only helps when checking it is quicker than trusting it [12]. So each item shows a count and the real log lines, which take seconds to check. The report talks about sessions, not about the person, since feedback aimed at the person often makes performance worse [13]. And it stays short: at Google, engineers ignored checking tools that raised too many false alarms (above about 10\%) [14].
+\section{How it improves over time}
+The tool also maintains itself, in four ways.
 
-\section{How it gets better over time}
-\begin{itemize}
-\item \textbf{Rules must earn their place.} Each rule remembers which mistake it should fix. If that mistake goes down over the next runs, the rule gets $+1$; if not, $-1$. A rule that keeps losing points is suggested for removal. This follows ExpeL, which keeps a list of lessons and votes them up or down [15], and ACE, which updates the AI's instructions in small steps instead of rewriting them [16]. \texttt{AGENTS.md} has a size limit; long rules for one kind of task move to a separate file it points to.
-\item \textbf{New mistakes get added.} The ``a different problem'' notes from step 3, plus a few full sessions the AI reads each run, are collected. When the same kind of note keeps coming back, it is suggested as a new item for the list, together with a new check for step 2 that was tested on past sessions.
-\item \textbf{Noisy checks are switched off.} If you keep rejecting what one check finds, it is muted until fixed.
-\item \textbf{Nothing is forgotten.} A fixed mistake is still counted, so we see if it comes back, for example after switching AI models.
-\end{itemize}
+\textbf{Rules must earn their place.} Each accepted rule remembers which mistake it was meant to fix. On every run, plain code gives the rule $+1$ if that mistake went down and $-1$ if it did not, averaged over several runs so that one lucky week does not count too much. A rule that keeps losing points is suggested for removal (Figure~\ref{fig:scores}). This follows ExpeL, which keeps a list of lessons and votes them up or down [15], and ACE, which updates an AI's instructions in small steps instead of rewriting them [16]. \texttt{AGENTS.md} also has a size limit, and long rules that only matter for one kind of task move to a separate file that \texttt{AGENTS.md} points to.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}
+\begin{axis}[width=\columnwidth,height=3.3cm,
+  ymin=-3.5,ymax=4.5,xmin=0.7,xmax=6.3,xtick={1,...,6},ytick={-3,0,3},
+  xlabel={run},xlabel style={font=\scriptsize},ylabel={rule score},ylabel style={font=\scriptsize},
+  tick label style={font=\scriptsize},legend style={font=\scriptsize,draw=none,at={(0.5,1.03)},anchor=south,legend columns=-1,/tikz/every even column/.append style={column sep=5pt}},
+  legend cell align=left]
+\addplot[thick,mark=*,color=green!50!black] coordinates {(1,0)(2,1)(3,2)(4,3)(5,3)(6,4)};
+\addplot[thick,mark=square*,color=flag] coordinates {(1,0)(2,-1)(3,-1)(4,-2)(5,-3)(6,-3)};
+\addplot[dashed,gray,domain=0.7:6.3] {-2};
+\legend{{``use pnpm, not npm''},{``write cleaner code''},{removal line}}
+\end{axis}
+\end{tikzpicture}
+\caption{Example scores. The useful rule keeps rising; the vague one falls below the line and is suggested for removal.}
+\label{fig:scores}
+\end{figure}
+
+\textbf{New mistakes get added.} The ``a different problem'' notes from step 3, together with a few complete sessions that the AI reads on every run, are collected over time. When the same kind of note keeps coming back, the tool suggests it as a new item for the list, together with a new check for step 2 that has already been tested on past sessions.
+
+\textbf{Noisy checks are switched off.} If the engineer keeps rejecting what one check finds, that check is muted until it is fixed.
+
+\textbf{Nothing is forgotten.} A mistake that has been fixed is still counted, so we notice if it comes back, for example after switching to a new AI model.
+
+For readers who prefer code, one run looks like this:
 
 \noindent\begin{minipage}{\columnwidth}
-\textbf{One run, in short:}
 \begin{lstlisting}
 sessions = clean(load_new_sessions())
 spots    = run_checks(sessions)          # plain code
@@ -179,10 +243,14 @@ for item in suggest(counts, history):
 \end{minipage}
 
 \section{How I would test it}
+I would start by reading about 20 real sessions and marking every mistake by hand. Ten of them are used to build the checks, and the other ten are kept aside for the final test, so the numbers are not tuned to the same data. On these sessions I measure two things separately. The simple checks must find almost every mistake I marked, above 90\%. The AI must then agree with my marks most of the time, with a standard agreement score (Cohen's kappa) above 0.7; a similar study reached 0.77 [8]. I would repeat this test whenever the AI model or the list of mistakes changes.
+
+Once the tool is in use, a fix counts as working when its mistake drops after the fix was accepted, and drops more than mistakes that were not touched. Figure~\ref{fig:test} shows the idea: if all mistakes drop together, the work probably just got easier that month.
+
 \begin{figure}[h]
 \centering
 \begin{tikzpicture}
-\begin{axis}[width=\columnwidth,height=3.6cm,ybar=1pt,bar width=6pt,
+\begin{axis}[width=\columnwidth,height=3.5cm,ybar=1pt,bar width=6pt,
   ymin=0,ymax=40,ylabel={\% of sessions},ylabel style={font=\scriptsize},
   xtick={1,...,6},xlabel={run (every 2 weeks)},xlabel style={font=\scriptsize},
   tick label style={font=\scriptsize},legend style={font=\scriptsize,draw=none,at={(0.5,1.03)},anchor=south,legend columns=-1,/tikz/every even column/.append style={column sep=6pt}},
@@ -193,37 +261,22 @@ for item in suggest(counts, history):
 \legend{``done'' without tests (rule added),long sessions (no change)}
 \end{axis}
 \end{tikzpicture}
-\caption{Example with made-up numbers. The rule was accepted after run 2. Only its mistake drops, so the drop is likely due to the rule and not to an easier month.}
+\caption{Example with made-up numbers. The rule was accepted after run 2 (dashed line). Only its own mistake drops.}
+\label{fig:test}
 \end{figure}
-\begin{enumerate}
-\item Read about 20 real sessions and mark every mistake by hand. Use 10 to build the checks and keep 10 aside for the final test.
-\item The simple checks must find almost every marked mistake (over 90\%).
-\item The AI must agree with my marks most of the time (a standard agreement score above 0.7; a similar study reached 0.77 [8]).
-\item After a fix is accepted, its mistake should drop more than mistakes that were not touched (see the chart).
-\item Repeat steps 2 and 3 whenever the AI model or the list changes.
-\end{enumerate}
 
-\section{Limits}
-\begin{itemize}
-\item It only sees what happens inside opencode.
-\item One person's sessions give small numbers, so some answers will be ``not enough data yet''.
-\item A drop after a fix is a good sign, not proof.
-\item The AI can be wrong, and the simple checks miss wordings they were never shown.
-\item A report nobody reads changes nothing, so it must stay short.
-\end{itemize}
+\section{Limits and next steps}
+The tool has clear limits. It only sees what happens inside opencode, so commands typed in a normal terminal are invisible to it. One person's sessions give small numbers, and many answers will honestly be ``not enough data yet''. A drop after a fix is a good sign, but it is not proof that the fix caused it. The AI that checks the spots can be wrong, and the simple checks will miss wordings they were never shown. Finally, a report that nobody reads changes nothing, which is why it must stay short.
 
-\section{Next steps}
-\begin{itemize}
-\item \textbf{Team version.} One anonymous line per session, grouped by topic, and a group is shown only if many engineers share it, as in Anthropic's Clio [17]. Secrets must be removed first, since such privacy layers can be attacked.
-\item \textbf{Live tips} inside opencode, e.g.\ ``this session is getting long, start a new one?''.
-\item \textbf{Skills that build on skills}, from steps that repeat across sessions [10].
-\end{itemize}
+The most useful next step is a team version. Each session would be turned into one short, anonymous line, similar lines would be grouped automatically, and a group would only be shown if many engineers share it, as in Anthropic's Clio system [17]. This finds problems nobody thought to put on the list, without exposing any one person's bad day. Secrets must be removed before this step, because researchers have shown that such privacy protections can be broken.
+
+A second step is to give tips during a session, not only afterwards, for example ``this session is getting long, do you want to start a new one?''. A third is to turn steps that repeat across many sessions into skills that can build on each other, the way Agent Workflow Memory reuses smaller routines inside bigger ones [10].
 
 \vspace{2pt}
 \hrule
 \vspace{3pt}
 {\scriptsize
-\textbf{A note on sources.} AI engineering changes every few months, so many good practices first appear in talks and videos by the people who build these tools, long before a paper (Claude Code's \texttt{/insights} [9] is mostly explained in posts and talks). Developers already learn this way: in the 2025 Stack Overflow survey, 60.5\% use YouTube for community, 70\% of those learning to code [18], and developers have long used YouTube to share know-how [19]. I also used a general AI engineering course on YouTube as a check; two of its points shaped this design: learn by building small things, and keep checking your system with an independent review [20].
+\textbf{A note on sources.} AI engineering changes every few months, so good practices often appear first in talks and videos by the people who build these tools, well before a paper is published; Claude Code's \texttt{/insights} [9], for example, is mostly explained in posts and talks. Developers already learn this way: in the 2025 Stack Overflow survey, 60.5\% use YouTube for community, and 70\% of those learning to code [18], and developers have long used YouTube to share know-how [19]. I also used a general AI engineering course on YouTube as a check; two of its points shaped this design: learn by building small things, and keep checking your system with an independent review [20].
 
 \vspace{3pt}
 \textbf{References.}
