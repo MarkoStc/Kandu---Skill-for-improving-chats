@@ -234,7 +234,9 @@ Before the trial I would run a smoke test, a quick check that the tool works at 
 \section{Limitations and future work}
 The tool only sees what happens inside opencode, not commands typed in a normal terminal. One person's sessions give small numbers. The AI can miss a problem, and the digest leaves out the AI's own long answers, so problems visible only there are not found. A count that drops after a fix is a good sign but not proof: a problem is picked because its count was high, and high counts tend to fall again by chance. This is why the tool never removes or rates fixes by itself. Finally, a report that nobody reads changes nothing, which is why it must stay short.
 
-Two next steps seem most useful. The first is automatic grouping of problems, as in Anthropic's Clio system [15]. Each problem the AI reports becomes one short, anonymous line. Each line is turned into an \emph{embedding}, a list of numbers in which lines with a similar meaning get similar numbers, and a clustering method then groups the lines that are close together. This replaces counting by a fixed list of problem names, so it also finds problems nobody named in advance. The same technique works for one engineer once enough lines have collected, for example after a few months, but it pays off most for a team: a group is shown only if many engineers share it, which finds common problems without exposing one person's bad day. The second is to give tips during a session and not only afterwards, for example ``this session is getting long, do you want to start a new one?'', using the same plugin mechanism as above.
+Two next steps seem most useful. The first is automatic grouping of problems with embeddings and clustering. This technique is already used in practice: Anthropic's Clio system applies it to millions of conversations with Claude to see what people use the assistant for, without anyone reading single conversations [15]. Clio works in four steps. An AI writes a short, anonymous summary of each conversation. Each summary is turned into an \emph{embedding}, a list of numbers in which texts with a similar meaning get similar numbers. A clustering method groups the summaries whose numbers are close together. Finally an AI gives each group a name, and groups that are too small are hidden to protect privacy. For \texttt{/improve}, the summaries would be the problems reported in step 2. This replaces counting by a fixed list of problem names, so it also finds problems nobody named in advance. It can be used for one engineer once enough problems have collected, for example after a few months, but it pays off most for a team, where it shows the problems many engineers share without exposing one person's bad day.
+
+The second is to give tips during a session and not only afterwards, for example ``this session is getting long, do you want to start a new one?'', using the same plugin mechanism as above.
 
 \vspace{3pt}
 \hrule
@@ -255,7 +257,7 @@ Two next steps seem most useful. The first is automatic grouping of problems, as
 [12] Vasconcelos et al., \emph{Explanations can reduce overreliance on AI}, CSCW 2023.
 [13] Kluger \& DeNisi, \emph{The effects of feedback interventions on performance}, Psychological Bulletin, 1996.
 [14] Sadowski et al., \emph{Lessons from building static analysis tools at Google}, CACM 2018.
-[15] Tamkin et al., \emph{Clio}, Anthropic, 2024.\par
+[15] Tamkin et al., \emph{Clio: privacy-preserving insights into real-world AI use}, Anthropic, arXiv:2412.13678, 2024.\par
 }
 
 \clearpage
