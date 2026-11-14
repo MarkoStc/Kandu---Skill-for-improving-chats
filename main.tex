@@ -80,7 +80,7 @@ Our engineers write code together with an AI. The program that runs the AI and c
 Every conversation with the AI is called a \textbf{session}, and every session is saved: what the engineer typed, what the AI answered, and every command it ran. Reading these logs shows two problems. First, the setup never learns: the AI makes the same mistake every day, because nobody turns that mistake into a fix. Second, people do not always know the good habits for working with the tool. For example, very long sessions make the AI worse [4], and code is better reviewed by a fresh agent than by the one that wrote it. \texttt{/improve} looks at both sides: mistakes made by the AI, and habits of the person using it.
 
 \section{Assumptions and scope of the work}
-I make five assumptions. First, a script already gives me each session as JSON, with the user, assistant and tool messages, their time, the agent name and the token count. Second, the tool serves one engineer at a time, with 20 to 60 sessions per run and a run every one or two weeks. Third, I target opencode V2, where a skill can be started by typing its name as a command, here \texttt{/improve}; in V1 this needs one extra setting [10]. Fourth, logs can contain passwords and keys, so my own script removes them before any AI reads the text. I would not rely on opencode's \texttt{export -{}-sanitize} for this: by one reading of its source it also blanks the conversation text, which is exactly what the tool needs to read. Fifth, as the task says, there is no training and no RL. The AI model stays the same, and it is the model the team already uses, so logs are not sent to any new company.
+I make five assumptions. First, a script already gives me each session as JSON, with the user, assistant and tool messages, their time, the agent name and the token count. Second, the tool serves one engineer at a time, with 20 to 60 sessions per run and a run every one or two weeks. Third, the skill is started by a small command file, so the engineer only has to type \texttt{/improve}; in opencode a command is one text file, and it can be set to run in the background [10]. Fourth, logs can contain passwords and keys, so my own script removes them before any AI reads the text. I would not rely on opencode's \texttt{export -{}-sanitize} for this: by one reading of its source it also blanks the conversation text, which is exactly what the tool needs to read. Fifth, as the task says, there is no training and no RL. The AI model stays the same, and it is the model the team already uses, so logs are not sent to any new company.
 
 Some things are left out on purpose. The tool never changes anything by itself, because a wrong rule would affect every future session. It does not judge the engineer's code, only how they work with the AI. It does not interrupt during a session; this version only looks back. It does not try to maintain or rewrite itself. A team-wide view is left for later (Section~8).
 
@@ -114,7 +114,7 @@ Anything else that cost time & \chip{ai}{AI reads} & ``no, not that file, the on
 \end{table*}
 
 \section{Description of the proposed skill}
-The engineer starts the skill by typing \texttt{/improve}. One run has four steps (Figure~\ref{fig:loop}). It runs as a \emph{subagent}, a separate helper with its own memory, so the logs do not fill up the engineer's working session. It also skips its own past sessions.
+The engineer starts the skill by typing \texttt{/improve}. One run has four steps (Figure~\ref{fig:loop}). It runs in the background as a \emph{subagent}, a separate helper with its own memory, so the logs do not fill up the engineer's working session. It also skips its own past sessions.
 
 \begin{figure}[h]
 \centering
@@ -156,7 +156,7 @@ AI:   problem: wrong file edited
 code: quote not found in the log           -> thrown away
 \end{lstlisting}
 
- Because the AI sees everything the engineer typed, it also catches corrections that contain no typical phrase, such as ``hmm, that's not what I meant''. Claude Code's \texttt{/insights} works in a similar way: a model reads each session, and long sessions are shortened first [8].
+ Because the AI sees everything the engineer typed, it also catches corrections that contain no typical phrase, such as ``hmm, that's not what I meant''. Claude Code's \texttt{/insights} works in a similar way: a model is called once for each session, and code puts the results together [8].
 
 \begin{center}
 \begin{tikzpicture}[
@@ -201,7 +201,7 @@ It is tempting to turn every problem into one more line in \texttt{AGENTS.md}. T
 \label{fig:ladder}
 \end{figure}
 
-A plugin comes first because it does not depend on the AI remembering anything. For ``files edited after the last test run'', a plugin can check this after every edit (opencode offers a hook for it, \texttt{tool.execute.after} [10]), which is more reliable than a written rule saying ``always test before you say done''.
+A plugin comes first because it does not depend on the AI remembering anything. For ``files edited after the last test run'', a plugin can check this after every edit (opencode plugins can run code after each tool call, with the \texttt{execute.after} hook [10]), which is more reliable than a written rule saying ``always test before you say done''.
 
 \section{The report shown to the engineer}
 The engineer types \texttt{/improve} and after a few minutes gets a short report. Each item looks like this:
@@ -252,7 +252,7 @@ The second is to give tips during a session and not only afterwards, for example
 [7] Cemri et al., \emph{Why do multi-agent LLM systems fail?}, NeurIPS 2025.
 [8] Claude Code \texttt{/insights} command, Anthropic, Feb 2026.
 [9] Gloaguen et al., \emph{Evaluating AGENTS.md: are repository-level context files helpful for coding agents?}, ETH Zurich, arXiv:2602.11988, 2026.
-[10] opencode documentation: skills, commands and plugins, \href{https://opencode.ai/docs/plugins}{opencode.ai/docs}.
+[10] opencode documentation: commands, skills and plugins, \href{https://opencode.ai/docs/commands}{opencode.ai/docs}.
 [11] Bansal et al., \emph{Does the whole exceed its parts?}, CHI 2021.
 [12] Vasconcelos et al., \emph{Explanations can reduce overreliance on AI}, CSCW 2023.
 [13] Kluger \& DeNisi, \emph{The effects of feedback interventions on performance}, Psychological Bulletin, 1996.
