@@ -85,6 +85,26 @@ I make five assumptions. First, a script already gives me each session as JSON, 
 
 Some things are left out on purpose. The tool never changes anything by itself, because a wrong rule would affect every future session. There is no single AI that reads all the logs, since that is slow, costly and hard to check. The tool does not judge the engineer's code, only how they work with the AI. It does not interrupt during a session; this first version only looks back. A team-wide view is also left for later (Section~9).
 
+\begin{table*}[t]
+\centering
+{\footnotesize
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{3.2cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}p{1.45cm} >{\raggedright\arraybackslash}p{3.0cm}@{}}
+\toprule
+\textbf{Mistake} & \textbf{What the check looks for} & \textbf{Example it catches} & \textbf{Decided by} & \textbf{Suggested fix}\\
+\midrule
+Same command fails again and again & the same command with an error, 3 times in a row & \texttt{npm test} fails 3 times at 09:03 & \chip{code}{code} & fix the tool, or add a rule \\
+AI says ``done'' without testing & a file edit after the last test run, then ``done'' or ``fixed'' & edit at 09:08, then ``Fixed the rounding. Done!'' & \chip{code}{code}\,\chip{ai}{AI} & rule: test before ``done'' \\
+Session too long & token count, hours, number of unrelated tasks & 6.5 hours, three tasks in one session & \chip{code}{code} & tip: one session per task \\
+Engineer repeats a correction & phrases like ``I told you'', typos of them, and the same meaning in other words & ``we use pnpm, I told you''; ``I tlod you''; ``como te dije, usa pnpm'' & \chip{code}{code}\,\chip{ai}{AI} & one line in \texttt{AGENTS.md} \\
+Review by the agent that wrote the code & a request to review in a session where the same agent edited files & ``review everything you did today'' at 15:32 & \chip{code}{code}\,\chip{ai}{AI} & a separate reviewer agent \\
+Same steps done by hand & the same list of commands in many sessions & the same 5 deploy commands in 7 sessions & \chip{code}{code} & a new skill [10] \\
+Something new & AI reads a few full sessions that look bad but had no marks & a long, costly session with many messages from the engineer & \chip{ai}{AI} & added to this list \\
+\bottomrule
+\end{tabularx}}
+\caption{The starting list of mistakes, from the task description, research on agent failures [8] and Claude Code's \texttt{/insights} [9]. ``Code'' means plain code decides alone; ``code + AI'' means code marks the spot and the AI confirms it.}
+\label{tab:checks}
+\end{table*}
+
 \section{Design rules}
 \textbf{Keep it simple.} Anthropic's guide on building agents advises to ``find the simplest solution possible, and only increase complexity when needed'' [1].
 
@@ -164,81 +184,30 @@ One run has five steps (Figure~\ref{fig:loop}).
 
 \textbf{5. You decide.} The engineer accepts, rejects or edits each suggestion. Accepted ones are written to the right file and committed. All choices, including rejections, are stored in a history file, so the tool does not keep suggesting the same thing.
 
-The starting list of mistakes comes from the task description, research on how AI agents fail [8], and Claude Code's similar \texttt{/insights} command [9]:
-
-\vspace{2pt}
-{\footnotesize
-\begin{tabularx}{\columnwidth}{@{}>{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}p{3.0cm}@{}}
-\toprule
-\textbf{What keeps happening} & \textbf{Suggested fix}\\
-\midrule
-Session runs too long, on many topics & tip: one session per task \\
-Review done by the same agent that wrote the code & a separate reviewer agent \\
-Engineer repeats the same correction & one line in \texttt{AGENTS.md} \\
-AI says ``done'' without running tests & rule: test before ``done'' \\
-Same failing command, again and again & fix the tool or add a rule \\
-Same steps done by hand in many sessions & a new skill for them [10] \\
-Something new & added to this list \\
-\bottomrule
-\end{tabularx}}
-
 \section{How the checks are built}
-A check (a \emph{detector}) is a small rule that looks at a session and marks spots where one kind of mistake may have happened. We have six kinds of tools for this, from strict and cheap to flexible and more costly. None needs a large AI; all run in seconds.
-
-\vspace{2pt}
-{\footnotesize
-\begin{tabularx}{\columnwidth}{@{}>{\raggedright\arraybackslash}p{2.05cm} >{\raggedright\arraybackslash}X@{}}
-\toprule
-\textbf{Tool} & \textbf{What it catches, with an example}\\
-\midrule
-Log structure & Order and result of commands: the same command failed 3 times in a row; a file was edited after the last test run. \\
-Counters & Sizes: tokens in the session, number of auto-summaries, hours, topics. \\
-Word patterns & Exact phrases: ``I told you'', ``we use'', ``no, not that''. \\
-Fuzzy match & Near copies: ``I tlod you'' (typo), or the engineer typing almost the same sentence twice. \\
-Meaning match & Same meaning in other words or languages: ``como te dije, usa pnpm''. \\
-Small local model & Intent with no keyword at all: ``hmm, that's not what I meant''. \\
-\bottomrule
-\end{tabularx}}
-
-The first two are the most reliable, because commands and their results are always written in the same format. The last four look at what people write, and people say the same thing in many ways. So for these, one mistake gets several checks at once, and a spot is marked if \emph{any} of them fires. This raises the number of false alarms, but that is fine: the AI in step 3 removes them, while a mistake that no check marks is lost for good. Figure~\ref{fig:recall} shows the effect for ``the engineer repeats a correction''.
+A check is a small piece of code that looks for one kind of mistake. Table~\ref{tab:checks} shows each mistake on the starting list, what its check looks for, and a real-looking example. Some mistakes are easy to see, because commands and their results are always written in the same format: three failed runs of the same command look the same every time. Others depend on how people write, and people say the same thing in many ways. For those, one mistake gets several simple checks: exact words, the same words with typos, and the same meaning in other words or languages. A spot is marked if any of them fires. Figure~\ref{fig:recall} shows why: each extra check finds cases the others missed.
 
 \begin{center}
-\centering
 \begin{tikzpicture}
-\begin{axis}[width=\columnwidth,height=3.0cm,xbar,bar width=6pt,
+\begin{axis}[width=0.78\columnwidth,height=3.0cm,xbar,bar width=6pt,
   xmin=0,xmax=112,xtick={0,25,50,75,90,100},xlabel={\% of hand-marked cases found},xlabel style={font=\scriptsize},
-  symbolic y coords={word patterns only,+ fuzzy match,+ meaning match,+ small model},ytick=data,y dir=reverse,
+  symbolic y coords={exact words,+ typos,+ same meaning,+ small model},ytick=data,y dir=reverse,
   tick label style={font=\scriptsize},nodes near coords,nodes near coords style={font=\scriptsize},enlarge y limits=0.25]
-\addplot[fill=ai,draw=blue!50!black] coordinates {(58,word patterns only)(71,+ fuzzy match)(89,+ meaning match)(94,+ small model)};
-\draw[dashed,orange!80!black,thick] (axis cs:90,{word patterns only}) -- (axis cs:90,{+ small model});
+\addplot[fill=ai,draw=blue!50!black] coordinates {(58,exact words)(71,+ typos)(89,+ same meaning)(94,+ small model)};
+\draw[dashed,orange!80!black,thick] (axis cs:90,{exact words}) -- (axis cs:90,{+ small model});
 \end{axis}
 \end{tikzpicture}
-\captionof{figure}{Stacking checks for one mistake (made-up numbers). Each added tool catches wordings the others missed; the dashed line is the 90\% target.}
+\captionof{figure}{Finding ``engineer repeats a correction'' (made-up numbers). Dashed line: the 90\% target.}
 \label{fig:recall}
 \end{center}
 
-All checks live in one settings file, so a new check usually needs no new code. A check for ``the engineer repeats a correction'' looks like this:
-
-\noindent\begin{minipage}{\columnwidth}
-\begin{lstlisting}[language={}]
-- mistake: repeated-correction
-  words:   ["I told you", "we use", "again,"]
-  similar_to: ["I already told you to use pnpm",
-               "no, only run the unit tests"]
-  min_similarity: 0.70
-  needs_ai_check: yes
-\end{lstlisting}
-\end{minipage}
-
-\textbf{How we try not to miss any type of mistake.} No fixed list can be complete, so the tool has several ways to notice what it does not know yet. The list starts from the task description, research on agent failures [8], \texttt{/insights} [9], and my own reading of about 20 real sessions. Each check is then measured on those hand-marked sessions and loosened until it finds over 90\% of the cases. On every run, the AI also reads a few complete sessions as a safety net. It picks sessions that look bad but had no marks, for example a long, costly session with many messages from the engineer, because that is where an unknown problem is most likely hiding. The ``a different problem'' answers from step 3 and the engineer's own remarks add more candidates.
-
-\textbf{Checks change too.} Every change to a check goes through the same yes/no review as a rule, and is saved in git:
+\textbf{Keeping it reliable.} Marking too much is fine, because the AI in step 3 removes false alarms; missing a mistake is worse, because it is lost for good. So the tool is built not to miss things:
 \begin{itemize}
-\item \textbf{New check.} When a new mistake type is added, the tool drafts its check, runs it on the cases already confirmed (it must find all of them) and on past sessions (to see how many spots it would mark), and shows these numbers before the engineer accepts. Often the new check is just a few new example sentences for the meaning match.
-\item \textbf{Loosen.} When the safety-net reading finds a real case that a check missed, its wording is added as a new example, so the check catches it next time.
-\item \textbf{Tighten or mute.} When most of a check's marks turn out to be false alarms, its threshold is raised, or it is muted until fixed.
+\item \textbf{Measured, not guessed.} Every check is tested on about 20 sessions that I marked by hand, and must find over 90\% of the cases.
+\item \textbf{A safety net.} Each run, the AI reads a few full sessions that look bad but had no marks, to find mistakes nobody listed yet.
+\item \textbf{Checks are updated.} A new mistake gets a new check. A check that missed a real case gets that case as a new example. A check that raises mostly false alarms is made stricter or switched off. Each change is tested on the hand-marked sessions first and approved like any other suggestion.
+\item \textbf{No silent failures.} If opencode changes its log format, the tool stops and says so, instead of quietly finding nothing.
 \end{itemize}
-Before any changed check is used, it is run again on the hand-marked sessions, the same way code is tested before release. If it now misses cases it used to find, the change is rejected.
 
 \section{What the engineer sees}
 The engineer types \texttt{/improve} in opencode, and after a few minutes gets a short report. Each item in it looks like this:
