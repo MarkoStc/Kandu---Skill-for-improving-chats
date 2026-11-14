@@ -145,7 +145,7 @@ edits after last test run: 1
 15:32 user  review everything you did today
 \end{lstlisting}
 
-\textbf{Step 2: Reading the short version with an AI model.} One call to a cheap AI model reads one digest and lists the moments where time was lost. Its answer has a fixed form, and every item must contain an exact quote from the session. Code then looks for that quote in the log. If it is not there, the item is thrown away, so the AI cannot report something that did not happen.
+\textbf{Step 2: Reading the short version with an AI model.} One call to a cheap AI model reads one digest and lists the moments where time was lost. The AI is given the problem names from Table~\ref{tab:checks}, so the same problem always gets the same name and can be counted; anything that fits no name goes under ``anything else''. It sees one session at a time and nothing from earlier runs. Its answer has a fixed form, and every item must contain an exact quote from the session. Code then looks for that quote in the log. If it is not there, the item is thrown away, so the AI cannot report something that did not happen.
 
 \begin{lstlisting}
 AI:   problem: repeated correction
@@ -180,7 +180,7 @@ code: quote not found in the log           -> thrown away
 \label{fig:timeline}
 \end{center}
 
-\textbf{Step 3: Counting the problems and selecting fixes.} Code puts the results of all sessions together and keeps only problems seen in three or more sessions. A single bad day is not a pattern. For each remaining problem it then picks where the fix should go (Section~5).
+\textbf{Step 3: Counting the problems and selecting fixes.} Code puts the results of all sessions together and keeps only problems seen in three or more sessions. A single bad day is not a pattern. For each remaining problem, code picks the type of fix (Section~5). One more AI call then writes the text of the suggestion, for example the exact line for \texttt{AGENTS.md}, using the quotes from those sessions. The AI only proposes this text; the engineer can edit it in the next step.
 
 \textbf{Step 4: Approval by the engineer.} The engineer accepts, rejects or edits each suggestion. Fixes that only concern this engineer go to their personal opencode settings. Changes to files that the whole project shares are opened as a pull request, so one person's habit never becomes a team rule without the team seeing it. Every answer, including each ``no'', is stored, so the tool does not suggest the same thing again.
 
@@ -229,7 +229,7 @@ On later runs, each accepted fix is listed with its new count next to the old on
 \item \textbf{Applying the accepted fixes.} Personal settings directly, shared files as a pull request. Then a first trial with two or three engineers.
 \end{enumerate}
 
-Before the trial I would run a smoke test, a quick check that the tool works at all. I would mark the problems by hand in about 20 real sessions and report plain numbers, such as ``found 14 of the 17 problems I marked, and reported 3 that I had not''. I would not present percentages or agreement scores: 20 sessions give only a few cases per problem type, and I would be the only person marking, where careful studies use three people marking independently [7].
+The tool has not been built or tested for this report, since the task asks for a design. Testing is the logical next step. Before the trial I would run a smoke test, a quick check that the tool works at all. I would mark the problems by hand in about 20 real sessions and report plain numbers, such as ``found 14 of the 17 problems I marked, and reported 3 that I had not''. I would not present percentages or agreement scores: 20 sessions give only a few cases per problem type, and I would be the only person marking, where careful studies use three people marking independently [7].
 
 \section{Limitations and future work}
 The tool only sees what happens inside opencode, not commands typed in a normal terminal. One person's sessions give small numbers. The AI can miss a problem, and the digest leaves out the AI's own long answers, so problems visible only there are not found. A count that drops after a fix is a good sign but not proof: a problem is picked because its count was high, and high counts tend to fall again by chance. This is why the tool never removes or rates fixes by itself. Finally, a report that nobody reads changes nothing, which is why it must stay short.
