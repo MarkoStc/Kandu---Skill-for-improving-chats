@@ -205,9 +205,11 @@ A check is a small piece of code that looks for one kind of mistake. Table~\ref{
 \begin{itemize}
 \item \textbf{Measured, not guessed.} Every check is tested on about 20 sessions that I marked by hand, and must find over 90\% of the cases.
 \item \textbf{A safety net.} Each run, the AI reads a few full sessions that look bad but had no marks, to find mistakes nobody listed yet.
-\item \textbf{Checks are updated.} A new mistake gets a new check. A check that missed a real case gets that case as a new example. A check that raises mostly false alarms is made stricter or switched off. Each change is tested on the hand-marked sessions first and approved like any other suggestion.
+\item \textbf{Checks are updated.} A check that missed a real case gets that case as a new example. A check that raises mostly false alarms is made stricter or switched off.
 \item \textbf{No silent failures.} If opencode changes its log format, the tool stops and says so, instead of quietly finding nothing.
 \end{itemize}
+
+\textbf{Who writes the checks.} I write the starting checks by hand, from the 20 sessions I marked. New ones are drafted by the AI and approved by a person. For example, the AI keeps noting ``a different problem: the agent searched the whole project for a file the engineer had named exactly''. Once this note shows up in several sessions, the AI drafts a check for it. When the mistake is about wording, the draft is only a list of words and example sentences in the settings file, so no code is needed. When it is about the log, as here, the draft is a few lines of code: ``the engineer gave a file path, and the next command was a search instead of opening that file''. The tool then tests the draft on its own: it must find every case already confirmed, and it shows how many spots it would mark in past sessions. A word list is approved by the engineer in the report, like any other suggestion. A code check is reviewed like normal code by whoever maintains the tool. An engineer can also start this by writing ``it keeps doing X''.
 
 \section{What the engineer sees}
 The engineer types \texttt{/improve} in opencode, and after a few minutes gets a short report. Each item in it looks like this:
@@ -248,7 +250,7 @@ Besides its checks (Section~5), the tool maintains its suggestions, in three way
 \label{fig:scores}
 \end{figure}
 
-\textbf{New mistakes get added.} The ``a different problem'' notes from step 3, together with a few complete sessions that the AI reads on every run, are collected over time. When the same kind of note keeps coming back, the tool suggests it as a new item for the list, together with a new check for step 2 that has already been tested on past sessions.
+\textbf{New mistakes get added.} When the AI keeps noting the same ``different problem'', it becomes a new item on the list, with its own check (Section~5).
 
 \textbf{Nothing is forgotten.} A mistake that has been fixed is still counted, so we notice if it comes back, for example after switching to a new AI model.
 
